@@ -1,0 +1,256 @@
+---
+title: "Project Part 1 Report"
+author: "Minh Ngo, Sri Sai Sushan Gumadavalli, Will Luo"
+fontsize: 12pt
+geometry: margin=1in
+urlcolor: black
+output: pdf_document
+header-includes:
+- \usepackage{setspace}
+- \onehalfspacing
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, highlight=FALSE)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(kableExtra)
+
+# Reading data, change directory to the location of the file on your PC
+recidivism <- read_csv("Recidivism__Beginning_2008.csv")
+
+# Clean column names: replaces spaces with underscores
+recidivism <- recidivism %>%
+  rename_with(~ gsub(" ", "_", .x))
+
+# Convert categorical variables to factors
+recidivism <- recidivism %>%
+  mutate(
+    Return_Status = as.factor(Return_Status),
+    County_of_Indictment = as.factor(County_of_Indictment),
+    Gender = as.factor(Gender)
+  )
+
+# recidivism %>% count()
+# glimpse(recidivism)
+```
+
+## Introduction
+  Recidivism measures the tendency of released individuals to reoffend after being released from prison. The purpose of this project is to see if there are patterns in recidivism rates within different demographics, such as between genders or age groups. We will do so using data from the New York State prison release records to answer the research questions listed below:
+
+  1. Is there a statistically significant difference in the mean age at release between offenders who return to prison within three years and those who do not in the 2008–2020 New York State release cohorts?
+
+  2. Is there a statistically significant difference in the proportions of male and female offenders who return to prison within three years of release in the 2008–2020 New York State release cohorts?
+
+
+## Data Summary
+
+  The data used comes from the administrative record compiled by the New York State Department of Corrections and Community Supervision (DOCCS). It includes every individual released from a New York State correctional facility between 2008 and 2020, containing a total of 287,139 observations. Each row corresponds to one release event, and the dataset records whether the individual returned to prison within three years of release due to a New Felony Offense or Parole Violation, or if they were Not Returned. The headers and the first two observations from the dataset (without modification) are shown below.
+```{r, echo=FALSE}
+# Print first two rows of dataset and format with kable
+recidivism %>%
+  head(2) %>%
+  kable(
+    caption = "First two Observations of the Recidivism Dataset",
+    booktabs = TRUE,
+    linesep = "",
+    align = "c"
+  ) %>%
+  kable_styling(
+    latex_options = c("hold_position", "striped"),
+    full_width = FALSE
+  )
+
+# Modifications
+recidivism <- recidivism %>%
+  mutate(
+    Returned = ifelse(Return_Status == "Not Returned", 0, 1),
+  )
+```
+
+  For our research questions, this dataset is considered a population, as we are only generalizing and drawing conclusions to the scope of the dataset. 
+
+
+  Modifications to the dataset are listed below.
+
+  1. The header variable names were cleaned to replace spaces with underscores for code compatibility. 
+
+  2. The categorical variable Return_Status was recoded into a binary variable `Returned` where Not Returned = 0 and both Returned Parole Violation and New Felony Offense = 1 because we are trying to study recidivism rates, and the severity of the crime committed if one were to recidive is not considered.
+
+  There are two potential limitations of this dataset. Firstly, each release event is treated as an independent observation, which means that individuals who are released multiple times are going to appear more than once in the dataset. This will lead to overestimation of the recidivism rate since the people who frequently recidivate will have a larger influence on the statistic. Secondly, the return reasons present in the dataset are grouped into broad categories, which prevents us from doing analysis for specific type of offenses. Although these limitations exist and might influence our conclusion drawn for individuals, our dataset is still capable for our goal of examining overall demographic patterns from release events.
+
+  This dataset directly measures three-year recidivism outcomes and contains the demographic variables (age and gender) required to answer both research questions. Additionally, the data's wide range and large size allows us to draw broad and strong conclusions.
+
+\newpage
+
+
+# Question 1: Age vs Recidivism
+## Exploratory Analysis
+```{r, echo=FALSE}
+# Numerical summary by reoffense and age
+table_age_recidivism <- recidivism %>%
+  group_by(Return_Status) %>%
+  summarise(
+    Count = n(),
+    Mean_Age = mean(Age_at_Release, na.rm = TRUE),
+    Median_Age = median(Age_at_Release, na.rm = TRUE),
+    SD_Age = sd(Age_at_Release, na.rm = TRUE),
+    Min_Age = min(Age_at_Release, na.rm = TRUE),
+    Max_Age = max(Age_at_Release, na.rm = TRUE)
+  )
+
+# Display table
+table_age_recidivism %>%
+  kable(
+    col.names = c("Return Status", "Count", "Mean Age", "Median Age", "SD", "Min", "Max"),
+    caption = "Summary of Age by Recidivism Status",
+    digits = 2,
+    booktabs = TRUE,
+    linesep = ""
+  ) %>%
+  kable_styling(
+    latex_options = c("hold_position", "striped"),
+    full_width = FALSE
+  )
+
+# Graphical summary
+
+# Identify outliers per group and jitter them slightly
+outliers <- recidivism %>%
+  group_by(Return_Status) %>%
+  mutate(
+    upper = quantile(Age_at_Release, 0.75, na.rm = TRUE) + 1.5 * IQR(Age_at_Release, na.rm = TRUE),
+    lower = quantile(Age_at_Release, 0.25, na.rm = TRUE) - 1.5 * IQR(Age_at_Release, na.rm = TRUE)
+  ) %>%
+  filter(Age_at_Release > upper | Age_at_Release < lower)
+
+ggplot(recidivism, aes(x = Return_Status, y = Age_at_Release, fill = Return_Status)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = NA) +  # hide default outlier dots
+  geom_jitter(
+    data = outliers,
+    aes(x = Return_Status, y = Age_at_Release),
+    width = 0.15,
+    color = "black",
+    alpha = 0.6,
+    size = 2
+  ) + 
+  scale_fill_manual(values = c("#1F77B4", "#FF7F0E", "#2CA02C")) +
+  labs(
+    title = "Figure 1. Distribution of Age at Release by Recidivism Status",
+    x = "Return Status",
+    y = "Age at Release (years)",
+    fill = "Return Status"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.title = element_text(face = "bold"),
+    legend.position = "none"
+  ) + 
+  scale_y_continuous(
+  limits = c(0, 105),
+  breaks = seq(0, 105, by = 10)
+)
+```
+
+## Conclusions
+
+  From the summary table and boxplot, individuals who were not returned to prison tend to be slightly older on average than those who reoffended. The median age of offenders who were not returned is 35 years, compared to 31 years for those who committed a new felony offense and 32 years for those returned for a parole violation. The interquartile ranges and whiskers also show that most offenders, regardless of return status, were between their mid-20s and early 40s, though a few older individuals extend into their 60s and 70s. The boxplot also reveals an outlier, which was a 100 year old person who returned due to a parole violation. Statistically, this pattern potentially indicates that offenders who recidivate are, on average, several years younger than those who successfully remain in the community.
+
+  This trend suggests that age is inversely related to the likelihood of recidivism. Younger individuals may face greater challenges in re-entry, such as unstable employment, peer influence, or lack of established support networks, which can increase the chance of reoffending or parole violations. In contrast, older offenders likely benefit from greater maturity, stability, and life experience, reducing their risk of returning to custody (Ulmer & Steffensmeier, 2014).
+
+  Overall, these findings imply that, within the 2008–2020 New York State release cohorts, younger offenders are a higher-risk group for recidivism, while older individuals are more likely to avoid reoffense. The results reinforce broader criminological evidence that the probability of reoffending decreases with age, highlighting the potential value of age-targeted rehabilitation and reentry programs to address the specific needs of younger offenders.
+
+# Question 2: Gender vs Recidivism
+## Exploratory Analysis
+```{r, echo=FALSE}
+# Numerical summary by gender
+table_gender <- recidivism %>%
+  group_by(Gender) %>%
+  summarise(
+    Count = n(),
+    Mean_Age = mean(Age_at_Release, na.rm = TRUE),
+    Recidivism_Rate = mean(Returned, na.rm = TRUE)
+  )
+
+# Display formatted table
+table_gender %>%
+  kable(
+    col.names = c("Gender", "Count", "Mean Age", "Recidivism Rate"),
+    caption = "Summary of Recidivism by Gender",
+    digits = 2,
+    align = "lccc",
+    booktabs = TRUE,
+    linesep = ""
+  ) %>%
+  kable_styling(
+    latex_options = c("hold_position", "striped"),
+    full_width = FALSE
+  ) %>%
+  column_spec(1, width = "1.5in") %>%
+  column_spec(2:4, width = "1.1in")
+
+# Graphical summary by gender
+ggplot(recidivism, aes(x = Gender, fill = as.factor(Returned))) +
+  geom_bar(position = "fill", color = "white", linewidth = 0.3) +
+  geom_text(
+    aes(
+      label = scales::percent(after_stat(count / tapply(count, x, sum)[as.character(x)]), accuracy = 1)
+    ),
+    stat = "count",
+    position = position_fill(vjust = 0.5),
+    color = "white",
+    size = 4
+  ) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(
+    values = c("0" = "#1F77B4", "1" = "#D62728"),
+    labels = c("Not Returned", "Returned")
+  ) +
+  labs(
+    title = "Figure 2. Proportion of Offenders Who Returned by Gender",
+    x = "Gender",
+    y = "Proportion of Individuals",
+    fill = "Return Status"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 13, hjust = 0.5),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    legend.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank()
+  )
+```
+
+## Conclusions
+  From the summary table and bar chart, it is clear that there are notable differences in recidivism rates between male and female offenders. Males make up the majority of releases in the dataset (approximately 268,000 compared to 18,700 females), and their recidivism rate is higher at about 39%, compared to 27% for females. While both groups have similar mean ages (around 36 years) gender appears to be a meaningful factor in the likelihood of returning to prison within three years of release.
+
+  Statistically, the approximately 12-percentage-point gap in recidivism rates suggests a significant disparity between genders. Given the large sample size, this difference likely reflects a real pattern rather than random variation. The proportional difference indicates that males are roughly 1.5 times more likely to recidivate than females, aligning with established criminological findings that men tend to have higher rates of reoffending.
+
+  In context, these trends may imply that female offenders face different post-release circumstances that reduce their risk of recidivism, such as stronger family connections, greater motivation for stability, or lower exposure to criminogenic environments. Conversely, males may encounter more barriers to reintegration, such as limited employment opportunities or higher supervision intensity, increasing their likelihood of return (Spjeldnes & Goodkind, 2009).
+
+  Overall, within the 2008–2020 New York State release cohorts, the results support the conclusion that gender is associated with recidivism outcomes: males are significantly more likely to return to prison within three years than females. This finding suggests that reentry programs and support services could be strengthened through gender-responsive approaches that address the distinct needs and risk factors of each group.
+
+
+\newpage
+## GitHub Repository Link
+https://github.com/UVA-STAT3080/project-team_msw
+
+## References
+
+Portions of the code, data visualization formatting, and written text in this report were developed with the assistance of OpenAI’s ChatGPT (Version 5).
+
+New York State Department of Corrections and Community Supervision. (2025, March 7). 
+Recidivism: Beginning 2008 [Data set]. State of New York: data.ny.gov. 
+https://catalog.data.gov/dataset/recidivism-beginning-2008
+
+OpenAI. (2025). ChatGPT (Version 5) [Large language model]. OpenAI. 
+https://chat.openai.com/
+
+Spjeldnes, S., & Goodkind, S. (2009). Gender differences and offender reentry: A review of the literature. Journal of Offender Rehabilitation, 48(4), 314–335. https://doi.org/10.1080/10509670902850812
+
+Ulmer, J., & Steffensmeier, D. (2014). The age and crime relationship: social variation, social explanations. In K. M. Beaver, J. Barnes, B. B. Boutwell (Eds.) The age and crime relationship: Social variation, social explanations (pp. 377-396). SAGE Publications Ltd, https://doi.org/10.4135/9781483349114.n24

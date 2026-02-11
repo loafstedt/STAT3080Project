@@ -1,0 +1,223 @@
+---
+title: "Statistical Analysis Report"
+author: "Minh Ngo, Sri Sai Sushan Gumadavalli, Will Luo"
+fontsize: 12pt
+geometry: margin=1in
+urlcolor: black
+output: pdf_document
+header-includes:
+- \usepackage{setspace}
+- \onehalfspacing
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, highlight=FALSE)
+library(tidyverse)
+library(kableExtra)
+```
+
+## GitHub Repository Link
+https://github.com/UVA-STAT3080/project-team_msw
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Reading data
+recidivism <- read_csv("Recidivism__Beginning_2008.csv")
+
+# Clean column names: replaces spaces with underscores
+recidivism <- recidivism %>%
+  rename_with(~ gsub(" ", "_", .x))
+
+# Convert categorical variables to factors
+recidivism <- recidivism %>%
+  mutate(
+    Return_Status = as.factor(Return_Status),
+    County_of_Indictment = as.factor(County_of_Indictment),
+    Gender = as.factor(Gender)
+  )
+```
+
+## Introduction and Research Question
+Recidivism is the tendency of a convicted criminal to reoffend. Using 2008–2020 New York State data, Part I showed that younger and male offenders have higher recidivism rates. In this analysis, we ask: Is there a significant difference in recidivism rates between male and female offenders in New York State since 1980?
+
+\[
+\begin{array}{ccc}
+\boxed{
+\begin{aligned}
+H_0: &\ p_m = p_f \\
+H_a: &\ p_m \neq p_f
+\end{aligned}
+}
+\end{array}
+\]
+
+## Methods
+
+   A possible method to answer this question is to use a Two-Proportion Z-Test. This is an appropriate test because we are comparing two independent proportions. In order to use this test, we must make sure all of its conditions are satisfied. 
+   
+1. **Independence**  
+  The male and female groups are independent from each other as the recidivism of a male does not meaningfully affect the recidivism of a female. Each of the observations within the male and female groups are also independent from each other, as one person's recidivism does not significantly affect another's. 
+2. **Representative Sample**  
+  Our data set contains every single releasee in a New York State prison from 2008–2025 and whether or not they returned within three years. Although this is technically a convenience sample, it is still representative of the population of interest—namely, all releasees in New York State since 1960—because the population of New York did not change much since 1980 and our sample covers many years of releases in the time period between 1980 and now. Additionally, most of the population that was alive in 1980 is also still alive today, so the data set actually contains some extrapolated data points from this time. 
+3. **Normality**  
+  We can use a normal quantile-quantile plot to see if the distribution of the differences in proportions are normally distributed. We will do this by making 10,000 bootstrap samples of the two groups and calculating their difference proportions. These bootstrap samples were drawn from two theoretical binomial distributions with parameters matching each of the two groups, because this is mathematically the same as drawing from the actual data and less computationally intensive. With an ordered list of these values, we can calculate the quantile value for each of them and compare them to what their quantile value would have been, given that they were normally distributed. The QQ-plot generated is shown below.
+
+## Normal Quantile-Quantile Plot
+```{r, echo=FALSE, fig.width=5, fig.height=4, fig.align="center"}
+## Generate qqplot to assess normality  
+set.seed(2007)
+
+# Create binary Returned variable
+recidivism <- recidivism %>%
+  mutate(
+    Returned = case_when(
+      Return_Status == "Not Returned" ~ 0,
+      TRUE ~ 1
+    )
+  )
+
+# Split data by gender
+male_outcomes <- recidivism$Returned[recidivism$Gender == "MALE"]
+female_outcomes <- recidivism$Returned[recidivism$Gender == "FEMALE"]
+
+# Get sample sizes and observed proportions
+n_m <- length(male_outcomes)
+n_f <- length(female_outcomes)
+
+p_m <- mean(male_outcomes)
+p_f <- mean(female_outcomes)
+
+# Bootstrap using binomial instead of full sample()
+boot_diffs <- replicate(
+  10000,
+  {
+    male_boot_p   <- rbinom(1, n_m, p_m) / n_m
+    female_boot_p <- rbinom(1, n_f, p_f) / n_f
+    male_boot_p - female_boot_p
+  }
+)
+
+# QQ plot
+data_for_plot <- data.frame(boot_diffs = boot_diffs)
+qqplot_diffprop <- ggplot(data_for_plot, aes(sample = boot_diffs)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(
+    title = "QQ Plot of Bootstrapped Differences in Proportions",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal()
+
+
+qqplot_diffprop
+```
+
+As we can see, the quantile values of the bootstrapped samples closely follow the line of normality. This gives strong evidence that the true distribution differences is approximately normal. We can also visually see the distribution using a histogram, as shown below.  
+
+## Histogram
+```{r, echo=FALSE, warning=FALSE, fig.width=5, fig.height=4, fig.align="center"}
+## Generate histogram of the bootstrap differences in proportions to visually see normality
+
+# Assuming boot_diffs is your vector of 10,000 bootstrapped differences
+boot_mean <- mean(boot_diffs)
+boot_sd   <- sd(boot_diffs)
+
+histogram_diffprop <- ggplot(data.frame(boot_diffs), aes(x = boot_diffs)) +
+  geom_histogram(aes(y = ..density..),
+                 bins = 50,
+                 fill = "skyblue",
+                 color = "black",
+                 alpha = 0.7) +
+  stat_function(fun = dnorm, args = list(mean = boot_mean, sd = boot_sd),
+                color = "red", size = 1) +
+  labs(
+    title = "Histogram of Bootstrapped Differences in Proportions",
+    x = "Difference in Proportions (Male - Female)",
+    y = "Density"
+  ) +
+  theme_minimal()
+
+histogram_diffprop
+```
+
+The distribution of the data seems to very closely follow the normal distribution curve (shown in red). From these two graphics, we can be confident that the distribution of the differences in proportions are approximately normal. With all the conditions of the Two-Proportion Z-Test satisfied, we can calculate the Z-statistic and p-value for our data.      
+
+## Results
+## Two-Proportion Z-Test
+```{r, echo=FALSE}
+# Count successes by gender
+tab <- recidivism %>%
+  group_by(Gender) %>%
+  summarise(
+    returned = sum(Returned == 1, na.rm = TRUE),
+    total = n(),
+    .groups = "drop"
+  )
+
+# Extract group counts
+x1 <- tab$returned[tab$Gender == "MALE"]
+n1 <- tab$total[tab$Gender == "MALE"]
+
+x2 <- tab$returned[tab$Gender == "FEMALE"]
+n2 <- tab$total[tab$Gender == "FEMALE"]
+
+# Sample proportions
+p1 <- x1 / n1
+p2 <- x2 / n2
+
+# Pooled proportion
+p_pool <- (x1 + x2) / (n1 + n2)
+
+# Standard error
+SE <- sqrt(p_pool * (1 - p_pool) * (1/n1 + 1/n2))
+
+# Z-statistic
+z_value <- (p1 - p2) / SE
+
+# Two-sided p-value
+p_val <- 2 * (1 - pnorm(abs(z_value)))
+
+# Output results
+results_df <- data.frame(
+  Statistic = c("Male Proportion", "Female Proportion",
+                "Difference (p1 - p2)", "Z-Statistic", "p-value"),
+  Value = c(p1, p2, p1 - p2, z_value, p_val)
+)
+
+kable_results <- results_df %>%
+  kable(format = "latex", booktabs = TRUE, digits = 5,
+        caption = "Two-Proportion Z-Test Results") %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+
+kable_results
+```
+
+The extremely small p-value providing strong evidence against the null hypothesis that recidivism rates are equal between genders, indicating the test is statistically significant. The observed difference of around 11.6 percentage points presents that males are more likely to re-offend than females.
+
+## Conclusions
+
+Our results indicate that there is a significant difference in recidivism rates between male and female offenders in New York State since 1980. To be specific, males have a rate of ~39% while females have a rate of ~27%, which means gender can be a determining factor in predicting re-offense probability, as males are more likely to recidivize.
+
+However, we cannot necessarily say that gender directly influences recidivism rates because our analysis does not include potential confounding variables such as age, race, offense type, and other relevant factors. We also assume the recidivism patterns have remained stable over time since 1980, but they could be dynamic instead.
+
+These findings are most suitable to generalize for New York State prison releases since 2008. We should take precautions when applying these results to releases from other states or from different time periods, since criminal behavior and justice system practices vary across time and location. However, the significant gender disparity observed aligns with broader national trends (Spjeldnes & Goodkind, 2009).
+
+
+
+
+\newpage
+
+## References
+
+Portions of the code, data visualization formatting, and written text in this report were developed with the assistance of OpenAI’s ChatGPT (Version 5).
+
+New York State Department of Corrections and Community Supervision. (2025, March 7). 
+Recidivism: Beginning 2008 [Data set]. State of New York: data.ny.gov. 
+https://catalog.data.gov/dataset/recidivism-beginning-2008
+
+OpenAI. (2025). ChatGPT (Version 5) [Large language model]. OpenAI. 
+https://chat.openai.com/
+
+
+Spjeldnes, S., & Goodkind, S. (2009). Gender differences and offender reentry: A review of the literature. Journal of Offender Rehabilitation, 48(4), 314–335. https://doi.org/10.1080/10509670902850812
